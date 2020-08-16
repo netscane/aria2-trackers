@@ -6,70 +6,126 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"text/template"
+    "io"
+    "bytes"
+    "fmt"
+    "strings"
 )
 
-var listUrl = "https://ngosang.github.io/trackerslist/trackers_best.txt"
+var (
+    trackerUrl = "https://cdn.jsdelivr.net/gh/ngosang/trackerslist/trackers_best_ip.txt"
+    //trackerUrl = "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt" //need http proxy
+)
 
-var tmpl = `bt-tracker={{range $k, $v := .}}{{if eq $k 0}}{{$v}}{{else}},{{$v}}{{end}}{{end}}
-enable-dht=true
-bt-enable-lpd=true
-enable-peer-exchange=true
-`
+func getTrackers() ([]string, error) {
+    client := &http.Client{}
+    request, err := http.NewRequest("GET", trackerUrl, nil)
+    if err != nil {
+        return nil, err
+    }
+    //add header
+    request.Header.Add("User-Agent","Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36")
 
-func downloadList() ([]string, error) {
-	resp, err := http.Get(listUrl)
+	resp, err := client.Do(request)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	rd := bufio.NewReader(resp.Body)
-	res := []string{}
+	trackers := []string{}
 	for {
-		line1, _, err := rd.ReadLine()
+		line, _, err := rd.ReadLine()
 		if err != nil {
 			break
 		}
-		//fmt.Println("url:", string(line1), len(line1))
-		if len(line1) > 0 {
-			res = append(res, string(line1))
+		if len(line) > 0 {
+			trackers = append(trackers, string(line))
 		}
 	}
-	return res, nil
+	return trackers, nil
 }
 
-func writeConf(data []string) error {
-	home, err := os.UserHomeDir()
+func getConfFilePath() (string, error) {
+    var (
+        home string
+        confPath string
+        err error
+    )
+	home, err = os.UserHomeDir()
 	if err != nil {
-		return err
+		return "", err
 	}
-	dir1 := filepath.Join(home, ".aria2")
-	os.Mkdir(dir1, os.ModePerm)
-	confPath := filepath.Join(home, ".aria2", "aria2.conf")
-	fp, err := os.Create(confPath)
-	if err != nil {
-		return err
-	}
-	defer fp.Close()
-	t := template.New("")
-	t, err = t.Parse(tmpl)
-	if err != nil {
-		return err
-	}
-	return t.Execute(fp, data)
+	confPath = filepath.Join(home, "aria2", "aria2.conf")
+    return confPath, nil
+}
+
+func updateConfFile(confPath string, trackers []string) error {
+    var (
+        err error
+        file *os.File
+        lineb []byte
+        line string
+        reader *bufio.Reader
+        bufw *bytes.Buffer
+    )
+
+    file, err = os.OpenFile(confPath, os.O_RDWR, 0666)
+    if err != nil {
+        fmt.Println("Open conf file error!", err)
+        return err
+    }
+    defer file.Close()
+
+    reader = bufio.NewReader(file)
+    bufw = new(bytes.Buffer)
+    for {
+        lineb, _, err = reader.ReadLine()
+        if err != nil {
+            if err == io.EOF {
+                break
+            } else {
+                fmt.Println("Read file error!", err)
+                return err
+            }
+        }
+        line = string(lineb)
+        if strings.HasPrefix(line, "bt-tracker") &&
+            !strings.HasPrefix(line, "bt-tracker-") {
+            line = "bt-tracker=" + strings.Join(trackers, ",") + "\n" 
+        }
+        bufw.WriteString(line)
+        bufw.WriteString("\n")
+    }
+    file.Seek(0, 0)
+    _, err = file.WriteString(bufw.String())
+    if err != nil {
+        fmt.Println("Write conf file error!", err)
+        return err
+    }
+    return nil
 }
 
 func main() {
 	flag.Parse()
 	if len(flag.Arg(0)) > 0 {
-		listUrl = flag.Arg(0)
+		trackerUrl = flag.Arg(0)
 	}
-	list1, err := downloadList()
+    var (
+        trackers []string
+        err error
+        confPath string
+    )
+	trackers, err = getTrackers()
 	if err != nil {
 		panic(err.Error())
 	}
-	err = writeConf(list1)
+    confPath, err = getConfFilePath()
 	if err != nil {
 		panic(err.Error())
 	}
+	err = updateConfFile(confPath, trackers)
+	if err != nil {
+		panic(err.Error())
+	}
+    fmt.Println("Update tracker success!")
 }
