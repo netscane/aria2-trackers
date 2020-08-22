@@ -93,8 +93,10 @@ func updateConfFile(confPath string, trackers []string) error {
             !strings.HasPrefix(line, "bt-tracker-") {
             line = "bt-tracker=" + strings.Join(trackers, ",") + "\n" 
         }
+        if bufw.Len() > 0 {
+            bufw.WriteString("\n")
+        }
         bufw.WriteString(line)
-        bufw.WriteString("\n")
     }
     file.Seek(0, 0)
     _, err = file.WriteString(bufw.String())
