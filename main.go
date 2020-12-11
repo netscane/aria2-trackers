@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
     "io"
     "bytes"
     "fmt"
@@ -91,12 +92,14 @@ func updateConfFile(confPath string, trackers []string) error {
         line = string(lineb)
         if strings.HasPrefix(line, "bt-tracker") &&
             !strings.HasPrefix(line, "bt-tracker-") {
-            line = "bt-tracker=" + strings.Join(trackers, ",") + "\n" 
-        }
-        if bufw.Len() > 0 {
-            bufw.WriteString("\n")
+            line = "bt-tracker=" + strings.Join(trackers, ",")
         }
         bufw.WriteString(line)
+	if "windows" == runtime.GOOS {
+	    bufw.WriteString("\r\n")
+	}else{
+	    bufw.WriteString("\n")
+	}
     }
     file.Seek(0, 0)
     _, err = file.WriteString(bufw.String())
